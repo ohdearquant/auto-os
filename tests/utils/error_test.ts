@@ -203,19 +203,34 @@ Deno.test("Error Chain", async (t) => {
         const networkError = new NetworkError("Request failed", {
             status: 500,
             timestamp: Date.now(),
-            trace: ["api_call", "network_request"]
+            trace: ["api_call", "network_request"],
+            context: {
+                endpoint: "https://api.example.com",
+                requestId: "req-123",
+                attempt: 1
+            }
         });
         const resourceError = new ResourceError("Resource unavailable", {
             resource: "api",
             originalError: networkError,
             recoverable: true,
-            retryCount: 1
+            retryCount: 1,
+            context: {
+                resourceId: "res-456",
+                operation: "fetch",
+                lastSuccess: Date.now() - 3600000
+            }
         });
         const timeoutError = new TimeoutError("Operation timed out", {
             operation: "api_request",
             originalError: resourceError,
             timeout: 5000,
-            attempts: 3
+            attempts: 3,
+            context: {
+                maxAttempts: 5,
+                backoffMs: 1000,
+                criticalOperation: true
+            }
         });
 
         assertEquals(timeoutError.originalError, resourceError);
@@ -226,8 +241,11 @@ Deno.test("Error Chain", async (t) => {
         
         // Verify error chain metadata
         assertExists(timeoutError.timestamp);
+        assertExists(timeoutError.context?.maxAttempts);
         assertExists((timeoutError.originalError as ResourceError).recoverable);
+        assertExists((timeoutError.originalError as ResourceError).context?.resourceId);
         assertExists(((timeoutError.originalError as ResourceError).originalError as NetworkError).trace);
+        assertExists(((timeoutError.originalError as ResourceError).originalError as NetworkError).context?.endpoint);
     });
 
     await t.step("preserves error chain context", () => {
