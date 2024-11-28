@@ -6,7 +6,8 @@
 import { 
     assertEquals, 
     assertThrows 
-} from "https://deno.land/std/testing/asserts.ts";
+} from "https://deno.land/std/assert/assert_equals.ts";
+import { assertRejects } from "https://deno.land/std/assert/assert_rejects.ts";
 import { FunctionRegistry } from "../function_registry.ts";
 import { FunctionExecutor } from "../function_executor.ts";
 import { createTestSecurityContext } from "../../utils/test_utils.ts";

@@ -4,10 +4,11 @@
  */
 
 import {
-    assertEquals,
-    assertThrows,
-    assertExists
-} from "https://deno.land/std/testing/asserts.ts";
+    assertEquals
+} from "https://deno.land/std/assert/assert_equals.ts";
+import { assertThrows } from "https://deno.land/std/assert/assert_throws.ts";
+import { assertExists } from "https://deno.land/std/assert/assert_exists.ts";
+import { assertRejects } from "https://deno.land/std/assert/assert_rejects.ts";
 import { FunctionRegistry } from "../agent/function_registry.ts";
 import { FunctionExecutor } from "../agent/function_executor.ts";
 import { createTestContext } from "./setup.ts";

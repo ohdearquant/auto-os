@@ -7,8 +7,8 @@ import {
     assertEquals,
     assertNotEquals,
     assert,
-    assertRejects
-} from "https://deno.land/std/testing/asserts.ts";
+} from "https://deno.land/std/assert/assert.ts";
+import { assertRejects } from "https://deno.land/std/assert/assert_rejects.ts";
 import { BaseAgent } from "../../src/agent/base.ts";
 import { ValidationError } from "../../src/types/error.ts";
 import { createMockMessage, createMockAgentConfig } from "../utils/test_utils.ts";

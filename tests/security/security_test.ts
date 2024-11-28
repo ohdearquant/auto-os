@@ -6,7 +6,8 @@
 import {
     assertEquals,
     assertExists,
-} from "https://deno.land/std/testing/asserts.ts";
+} from "https://deno.land/std/assert/assert_equals.ts";
+import { assertRejects } from "https://deno.land/std/assert/assert_rejects.ts";
 import { createMockSecurityContext } from "../utils/test_utils.ts";
 import { SecurityValidator } from "../../src/security/validator.ts";
 import { SecurityPolicy } from "../../src/security/policy.ts";

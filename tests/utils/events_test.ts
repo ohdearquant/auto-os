@@ -4,10 +4,10 @@
  */
 
 import {
-    assertEquals,
-    assertExists,
-    assertRejects
-} from "https://deno.land/std/testing/asserts.ts";
+    assertEquals
+} from "https://deno.land/std/assert/assert_equals.ts";
+import { assertExists } from "https://deno.land/std/assert/assert_exists.ts";
+import { assertRejects } from "https://deno.land/std/assert/assert_rejects.ts";
 import { EventEmitter } from "../../src/utils/events.ts";
 import { ValidationError } from "../../src/types/error.ts";
 import type { Message } from "../../src/types/message.ts";
