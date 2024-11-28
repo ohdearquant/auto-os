@@ -40,18 +40,6 @@ export type {
     ArchitecturalConstraints 
 } from "./constraints.ts";
 
-// Export error types
-export { 
-    DenoAgentsError,
-    ErrorCode,
-    ValidationError,
-    SecurityError,
-    ResourceError,
-    TimeoutError,
-    InitializationError,
-    RuntimeError 
-} from "./error.ts";
-
 // Export constants
 export {
     REQUIRED_RUNTIME,
