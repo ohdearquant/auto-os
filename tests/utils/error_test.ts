@@ -1,19 +1,28 @@
 /**
- * Error handling tests
+ * Error handling and validation tests
  * @module tests/utils
+ * 
+ * Test coverage requirements:
+ * - Error hierarchy validation
+ * - Context preservation
+ * - Recovery mechanisms
+ * - Security audit
+ * - Performance impact
  */
 
 import {
     assertEquals,
     assertExists,
+    assertThrows
 } from "https://deno.land/std/testing/asserts.ts";
 import {
     DenoAgentsError,
-    ValidationError,
+    ValidationError, 
     SecurityError,
     TimeoutError,
     ResourceError,
-    NetworkError
+    NetworkError,
+    ErrorCode
 } from "../../src/agent/errors.ts";
 
 Deno.test("Base Error", async (t) => {
@@ -192,15 +201,21 @@ Deno.test("Network Error", async (t) => {
 Deno.test("Error Chain", async (t) => {
     await t.step("chains multiple errors", () => {
         const networkError = new NetworkError("Request failed", {
-            status: 500
+            status: 500,
+            timestamp: Date.now(),
+            trace: ["api_call", "network_request"]
         });
         const resourceError = new ResourceError("Resource unavailable", {
             resource: "api",
-            originalError: networkError
+            originalError: networkError,
+            recoverable: true,
+            retryCount: 1
         });
         const timeoutError = new TimeoutError("Operation timed out", {
             operation: "api_request",
-            originalError: resourceError
+            originalError: resourceError,
+            timeout: 5000,
+            attempts: 3
         });
 
         assertEquals(timeoutError.originalError, resourceError);
@@ -208,24 +223,54 @@ Deno.test("Error Chain", async (t) => {
             (timeoutError.originalError as ResourceError).originalError,
             networkError
         );
+        
+        // Verify error chain metadata
+        assertExists(timeoutError.timestamp);
+        assertExists((timeoutError.originalError as ResourceError).recoverable);
+        assertExists(((timeoutError.originalError as ResourceError).originalError as NetworkError).trace);
     });
 
     await t.step("preserves error chain context", () => {
         const baseError = new Error("System error");
         const networkError = new NetworkError("Connection failed", {
             originalError: baseError,
-            host: "example.com"
+            host: "example.com",
+            port: 443,
+            protocol: "https"
         });
         const error = new DenoAgentsError("Operation failed", {
             originalError: networkError,
-            context: { operation: "sync" }
+            context: { 
+                operation: "sync",
+                component: "api_client",
+                severity: "high"
+            }
         });
 
         assertEquals(error.context?.operation, "sync");
+        assertEquals(error.context?.severity, "high");
         assertEquals(
             (error.originalError as NetworkError).host,
             "example.com"
         );
+        assertExists((error.originalError as NetworkError).protocol);
+    });
+
+    await t.step("supports error recovery metadata", () => {
+        const error = new DenoAgentsError("Test error", {
+            code: ErrorCode.RUNTIME_ERROR,
+            context: {
+                recoverable: true,
+                retryCount: 2,
+                lastAttempt: Date.now(),
+                nextRetry: Date.now() + 1000
+            }
+        });
+
+        assertExists(error.context?.recoverable);
+        assertExists(error.context?.retryCount);
+        assertExists(error.context?.lastAttempt);
+        assertExists(error.context?.nextRetry);
     });
 });
 
