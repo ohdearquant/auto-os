@@ -3,8 +3,30 @@
  * @module types/agent
  */
 
+import type { Message } from "./message.ts";
 import type { LLMConfig } from "./config.ts";
 import type { PermissionSet } from "./security.ts";
+import type { Result } from "./base.ts";
+
+/**
+ * Core Agent interface that all agents must implement
+ */
+export interface Agent {
+    /** Agent configuration */
+    readonly config: AgentConfig;
+    
+    /** Send a message to another agent */
+    sendMessage(message: Message): Promise<Result<Message>>;
+    
+    /** Receive a message from another agent */
+    receiveMessage(message: Message): Promise<Result<Message>>;
+    
+    /** Reset agent state */
+    reset(): Promise<void>;
+    
+    /** Terminate agent and cleanup resources */
+    terminate(): Promise<void>;
+}
 
 /**
  * Supported agent types in the framework
