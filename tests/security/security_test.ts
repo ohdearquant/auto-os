@@ -16,30 +16,38 @@ Deno.test("Security Context", async (t) => {
     const context = createMockSecurityContext();
 
     await t.step("validates permission patterns", async () => {
-        // Test hierarchical permissions as specified in security-architecture.md
-        const networkPermission = await context.checkPermission({
-            type: "network",
-            action: "connect",
-            target: "api.example.com",
-            protocol: "https"
-        });
-        assertEquals(networkPermission, true);
+        // Network permissions with wildcards
+        const networkPermissions = [
+            { type: "network", action: "connect", target: "api.example.com", protocol: "https" },
+            { type: "network", action: "connect", target: "*.example.com", protocol: "https" },
+            { type: "network", action: "*", target: "internal.example.com", protocol: "*" }
+        ];
+        
+        for (const perm of networkPermissions) {
+            assertEquals(await context.checkPermission(perm), true);
+        }
 
-        // Test file system permissions
-        const fsPermission = await context.checkPermission({
-            type: "fileSystem",
-            action: "read",
-            path: "/allowed/path"
-        });
-        assertEquals(fsPermission, true);
+        // File system permissions with patterns
+        const fsPermissions = [
+            { type: "fileSystem", action: "read", path: "/allowed/path" },
+            { type: "fileSystem", action: "write", path: "/allowed/path/*.txt" },
+            { type: "fileSystem", action: "read", path: "/allowed/**/logs" }
+        ];
+        
+        for (const perm of fsPermissions) {
+            assertEquals(await context.checkPermission(perm), true);
+        }
 
-        // Test environment permissions
-        const envPermission = await context.checkPermission({
-            type: "env",
-            action: "read",
-            variable: "ALLOWED_VAR"
-        });
-        assertEquals(envPermission, true);
+        // Environment permissions with patterns
+        const envPermissions = [
+            { type: "env", action: "read", variable: "ALLOWED_VAR" },
+            { type: "env", action: "read", variable: "ALLOWED_*" },
+            { type: "env", action: "*", variable: "SYSTEM_*" }
+        ];
+        
+        for (const perm of envPermissions) {
+            assertEquals(await context.checkPermission(perm), true);
+        }
 
         // Test permission inheritance
         const childContext = await context.createChildContext({
@@ -62,21 +70,44 @@ Deno.test("Security Context", async (t) => {
                 memory: 100 * 1024 * 1024, // 100MB
                 cpu: 50, // 50% CPU
                 connections: 10,
-                bandwidth: 1024 * 1024 // 1MB/s
+                bandwidth: 1024 * 1024, // 1MB/s
+                operations: 1000, // ops/sec
+                storage: 500 * 1024 * 1024 // 500MB
             }
         });
-        
-        // Test memory quota
-        assertEquals(
-            await quotaContext.checkResourceLimit("memory", 50 * 1024 * 1024),
-            true
-        );
-        
-        // Test CPU quota
-        assertEquals(
-            await quotaContext.checkResourceLimit("cpu", 25),
-            true
-        );
+
+        // Test all resource limits
+        const resourceTests = [
+            { type: "memory", value: 50 * 1024 * 1024, expected: true },
+            { type: "memory", value: 150 * 1024 * 1024, expected: false },
+            { type: "cpu", value: 25, expected: true },
+            { type: "cpu", value: 75, expected: false },
+            { type: "connections", value: 5, expected: true },
+            { type: "connections", value: 15, expected: false },
+            { type: "bandwidth", value: 512 * 1024, expected: true },
+            { type: "bandwidth", value: 2 * 1024 * 1024, expected: false },
+            { type: "operations", value: 500, expected: true },
+            { type: "operations", value: 1500, expected: false },
+            { type: "storage", value: 250 * 1024 * 1024, expected: true },
+            { type: "storage", value: 750 * 1024 * 1024, expected: false }
+        ];
+
+        for (const test of resourceTests) {
+            assertEquals(
+                await quotaContext.checkResourceLimit(test.type, test.value),
+                test.expected,
+                `Resource limit check failed for ${test.type}`
+            );
+        }
+
+        // Test quota monitoring
+        const usage = await quotaContext.getResourceUsage();
+        assertExists(usage.memory);
+        assertExists(usage.cpu);
+        assertExists(usage.connections);
+        assertExists(usage.bandwidth);
+        assertExists(usage.operations);
+        assertExists(usage.storage);
         
         // Test connection quota
         assertEquals(
