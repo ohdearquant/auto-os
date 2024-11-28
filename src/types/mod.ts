@@ -22,6 +22,13 @@ export type { SecurityContext, PermissionSet, ResourceLimits } from "./security.
 export type { LLMConfig, LLMResponse, TokenUsage } from "./llm.ts";
 export type { AgentConfig, AgentState, AgentStatus } from "./agent.ts";
 export type { FrameworkConfig } from "./config.ts";
+
+// Export error types explicitly
+export { DenoAgentsError, ErrorCode } from "./error.ts";
+export { ValidationError } from "./error.ts";
+export { SecurityError } from "./error.ts";
+export { ResourceError } from "./error.ts";
+export { TimeoutError } from "./error.ts";
 export type { 
     RuntimeDependency,
     ExternalAPI,
