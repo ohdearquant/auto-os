@@ -1,152 +1,73 @@
 /**
- * Integration tests for the DenoAgents Framework
- * @module tests/integration
+ * Integration test suite
+ * @module test/integration
  */
 
 import {
     assertEquals,
-    assertExists,
+    assertExists
 } from "https://deno.land/std/testing/asserts.ts";
-import { createMockMessage, createMockAgentConfig, TestAgent } from "../utils/test_utils.ts";
-import { OpenAIProvider } from "../../src/llm/openai_provider.ts";
-import { ChatManager } from "../../src/chat/manager.ts";
-import { ModelManager } from "../../src/llm/model_manager.ts";
-import { FunctionRegistry } from "../../src/agent/function_registry.ts";
-import { ValidationError } from "../../src/agent/errors.ts";
-import type { Message, LLMConfig } from "../../types/mod.ts";
+import {
+    BaseAgent,
+    ConversableAgent,
+    DirectChat,
+    ModelManager,
+    FunctionRegistry
+} from "../mod.ts";
+import { createTestContext } from "./setup.ts";
 
-Deno.test("Agent-Chat Integration", async (t) => {
-    const agent1 = new TestAgent(createMockAgentConfig());
-    const agent2 = new TestAgent(createMockAgentConfig());
-    const chatManager = new ChatManager();
+Deno.test("Component Integration", async (t) => {
+    await t.step("Agent with Chat System", async () => {
+        // Setup components
+        const agent1 = new ConversableAgent({
+            id: "agent1",
+            name: "Agent 1",
+            type: "conversable",
+            security: createTestContext()
+        });
 
-    await t.step("creates chat session", async () => {
-        const chat = await chatManager.createChat("direct", {
+        const agent2 = new ConversableAgent({
+            id: "agent2",
+            name: "Agent 2",
+            type: "conversable",
+            security: createTestContext()
+        });
+
+        const chat = new DirectChat({
             id: "test-chat",
-            name: "Test Chat"
+            security: createTestContext()
         });
-        
-        await chat.addParticipant(agent1.config.id);
-        await chat.addParticipant(agent2.config.id);
-        
-        assertEquals(chat.getParticipants().size, 2);
-    });
 
-    await t.step("exchanges messages", async () => {
-        const chat = await chatManager.getChat("test-chat");
-        const message = createMockMessage({
+        // Test integration
+        await chat.addParticipant(agent1.getId());
+        await chat.addParticipant(agent2.getId());
+
+        const message = {
+            id: crypto.randomUUID(),
+            role: "user",
+            content: "Hello",
             metadata: {
-                senderId: agent1.config.id,
-                recipientId: agent2.config.id,
-                conversationId: chat.getId()
-            }
-        });
-
-        const result = await chat.sendMessage(message);
-        assertEquals(result.success, true);
-        assertExists(result.value);
-    });
-
-    await t.step("maintains conversation history", async () => {
-        const chat = await chatManager.getChat("test-chat");
-        const history = chat.getHistory();
-        assertEquals(history.length > 0, true);
-    });
-});
-
-Deno.test("Agent-LLM Integration", async (t) => {
-    const modelManager = new ModelManager();
-    const config: LLMConfig = {
-        id: crypto.randomUUID(),
-        name: "test-model",
-        provider: "openai",
-        model: "gpt-4",
-        apiConfig: {
-            apiKey: "test-key"
-        }
-    };
-
-    await t.step("connects agent to LLM", async () => {
-        await modelManager.registerProvider(config);
-        const provider = modelManager.getProvider("openai");
-        const agent = new TestAgent(createMockAgentConfig({
-            llmConfig: config
-        }));
-
-        assertExists(provider);
-        assertEquals(agent.config.llmConfig?.provider, "openai");
-    });
-
-    await t.step("processes messages through LLM", async () => {
-        // Mock fetch for testing
-        globalThis.fetch = async () => new Response(
-            JSON.stringify({
-                choices: [{
-                    message: {
-                        content: "LLM response",
-                        role: "assistant"
-                    }
-                }],
-                usage: {
-                    prompt_tokens: 10,
-                    completion_tokens: 5,
-                    total_tokens: 15
-                }
-            })
-        );
-
-        const provider = modelManager.getProvider("openai");
-        const result = await provider.complete([createMockMessage()]);
-        assertEquals(result.success, true);
-        assertExists(result.value);
-    });
-});
-
-Deno.test("Agent-Function Integration", async (t) => {
-    const registry = new FunctionRegistry();
-    const agent = new TestAgent(createMockAgentConfig());
-
-    await t.step("registers functions with agent", () => {
-        const testFunction = {
-            name: "test",
-            description: "Test function",
-            parameters: {
-                type: "object",
-                properties: {
-                    input: { type: "string" }
-                }
+                senderId: agent1.getId(),
+                recipientId: agent2.getId(),
+                conversationId: chat.getId(),
+                timestamp: Date.now()
             },
-            handler: async (input: string) => `Result: ${input}`
+            timestamp: Date.now()
         };
 
-        registry.register(testFunction);
-        assertEquals(registry.list().length, 1);
+        await chat.sendMessage(message);
+        
+        assertEquals(chat.getHistory().length, 1);
+        assertEquals(
+            chat.getHistory()[0].metadata.senderId,
+            agent1.getId()
+        );
     });
 
-    await t.step("executes functions through messages", async () => {
-        const message = createMockMessage({
-            function_call: {
-                name: "test",
-                arguments: JSON.stringify({ input: "test" })
-            }
-        });
-
-        const result = await agent.receiveMessage(message);
-        assertEquals(result.success, true);
-        assertExists(result.value);
-    });
-});
-
-Deno.test("Full System Integration", async (t) => {
-    const modelManager = new ModelManager();
-    const chatManager = new ChatManager();
-    const registry = new FunctionRegistry();
-
-    await t.step("initializes system components", async () => {
-        // Register LLM provider
-        await modelManager.registerProvider({
-            id: crypto.randomUUID(),
-            name: "test-model",
+    await t.step("Agent with LLM Integration", async () => {
+        const manager = new ModelManager(createTestContext());
+        
+        await manager.registerProvider({
             provider: "openai",
             model: "gpt-4",
             apiConfig: {
@@ -154,32 +75,40 @@ Deno.test("Full System Integration", async (t) => {
             }
         });
 
-        // Create agents
-        const agent1 = new TestAgent(createMockAgentConfig({
+        const agent = new ConversableAgent({
+            id: "llm-agent",
+            name: "LLM Agent",
+            type: "conversable",
+            security: createTestContext(),
             llmConfig: {
-                id: crypto.randomUUID(),
-                name: "test-model",
                 provider: "openai",
-                model: "gpt-4",
-                apiConfig: {
-                    apiKey: "test-key"
-                }
+                model: "gpt-4"
             }
-        }));
-        const agent2 = new TestAgent(createMockAgentConfig());
-
-        // Create chat
-        const chat = await chatManager.createChat("direct", {
-            id: "test-chat",
-            name: "Test Chat"
         });
 
-        await chat.addParticipant(agent1.config.id);
-        await chat.addParticipant(agent2.config.id);
+        const response = await agent.generateResponse(
+            "Hello, how are you?"
+        );
+
+        assertExists(response);
+        assertEquals(typeof response.content, "string");
+    });
+
+    await t.step("Function Registration and Execution", async () => {
+        const registry = new FunctionRegistry(
+            createTestContext()
+        );
+
+        const agent = new ConversableAgent({
+            id: "func-agent",
+            name: "Function Agent",
+            type: "conversable",
+            security: createTestContext()
+        });
 
         // Register function
-        registry.register({
-            name: "test",
+        await registry.registerFunction({
+            name: "test_function",
             description: "Test function",
             parameters: {
                 type: "object",
@@ -187,27 +116,93 @@ Deno.test("Full System Integration", async (t) => {
                     input: { type: "string" }
                 }
             },
-            handler: async (input: string) => `Result: ${input}`
-        });
-
-        assertExists(modelManager.getProvider("openai"));
-        assertEquals(chat.getParticipants().size, 2);
-        assertEquals(registry.list().length, 1);
-    });
-
-    await t.step("processes end-to-end interaction", async () => {
-        const chat = await chatManager.getChat("test-chat");
-        const message = createMockMessage({
-            content: "Call test function",
-            function_call: {
-                name: "test",
-                arguments: JSON.stringify({ input: "test" })
+            returns: { type: "string" },
+            handler: async (...args: unknown[]) => {
+                const input = args[0] as string;
+                return input.toUpperCase();
             }
         });
 
-        const result = await chat.sendMessage(message);
-        assertEquals(result.success, true);
-        assertExists(result.value);
-        assertEquals(chat.getHistory().length > 0, true);
+        // Execute function
+        const result = await agent.executeFunction(
+            "test_function",
+            ["hello"]
+        );
+
+        assertEquals(result, "HELLO");
+    });
+
+    await t.step("Security Integration", async () => {
+        const agent = new ConversableAgent({
+            id: "secure-agent",
+            name: "Secure Agent",
+            type: "conversable",
+            security: createTestContext()
+        });
+
+        // Test permission enforcement
+        await agent.security.enforcePermissions(
+            "send_message",
+            "recipient-id"
+        );
+
+        // Test rate limiting
+        await agent.security.enforceRateLimit(
+            "send_message",
+            100,
+            60000
+        );
+
+        // Test input validation
+        const message = {
+            id: crypto.randomUUID(),
+            role: "user",
+            content: "Hello",
+            metadata: {
+                senderId: agent.getId(),
+                recipientId: "recipient",
+                conversationId: "test",
+                timestamp: Date.now()
+            },
+            timestamp: Date.now()
+        };
+
+        await agent.validator.validateInput(message);
+    });
+
+    await t.step("Performance Integration", async () => {
+        const agent = new ConversableAgent({
+            id: "perf-agent",
+            name: "Performance Agent",
+            type: "conversable",
+            security: createTestContext(),
+            limits: {
+                memory: 100 * 1024 * 1024,
+                cpu: 1000
+            }
+        });
+
+        // Test resource monitoring
+        const result = await agent.optimizer.monitor(async () => {
+            return "test";
+        });
+
+        assertEquals(result, "test");
+
+        // Test batch processing
+        const items = ["a", "b", "c"];
+        const results = await agent.optimizer.processBatch(
+            items,
+            async (item: string) => item.toUpperCase(),
+            2
+        );
+
+        assertEquals(results, ["A", "B", "C"]);
+
+        // Get performance metrics
+        const metrics = agent.optimizer.getMetrics();
+        assertExists(metrics.averageLatency);
+        assertExists(metrics.averageMemory);
+        assertExists(metrics.peakMemory);
     });
 });
