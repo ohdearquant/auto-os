@@ -208,3 +208,96 @@ Deno.test("Log Performance", async (t) => {
         await Promise.all(promises);
     });
 });
+
+Deno.test("Security Validation", async (t) => {
+    const validator = new Validator();
+
+    await t.step("validates security context", () => {
+        const securitySchema: JSONSchema = {
+            type: "object",
+            properties: {
+                principal: { type: "string" },
+                scope: { type: "string" },
+                permissions: {
+                    type: "object",
+                    properties: {
+                        network: { type: "array" },
+                        fileSystem: { type: "array" },
+                        env: { type: "array" }
+                    }
+                }
+            },
+            required: ["principal", "scope"]
+        };
+
+        // Valid security context
+        validator.validate({
+            principal: "test-user",
+            scope: "test-scope",
+            permissions: {
+                network: ["api.example.com"],
+                fileSystem: ["/tmp"],
+                env: ["TEST_VAR"]
+            }
+        }, securitySchema);
+
+        // Invalid security context
+        assertRejects(
+            () => validator.validate({
+                scope: "test-scope",
+                permissions: {}
+            }, securitySchema),
+            ValidationError,
+            "Missing required principal"
+        );
+    });
+
+    await t.step("validates permission patterns", () => {
+        const permissionSchema: JSONSchema = {
+            type: "array",
+            items: {
+                type: "string",
+                pattern: "^[a-zA-Z0-9_\\-\\.\\*]+$"
+            }
+        };
+
+        // Valid patterns
+        validator.validate(["api.*", "file.read", "env.TEST_*"], permissionSchema);
+
+        // Invalid patterns
+        assertRejects(
+            () => validator.validate(["../dangerous", "$(command)"], permissionSchema),
+            ValidationError,
+            "Invalid permission pattern"
+        );
+    });
+
+    await t.step("enforces resource limits", () => {
+        const limitsSchema: JSONSchema = {
+            type: "object",
+            properties: {
+                memory: { type: "number", minimum: 0, maximum: 1024 },
+                cpu: { type: "number", minimum: 0, maximum: 100 },
+                connections: { type: "number", minimum: 0, maximum: 50 }
+            }
+        };
+
+        // Valid limits
+        validator.validate({
+            memory: 512,
+            cpu: 50,
+            connections: 25
+        }, limitsSchema);
+
+        // Invalid limits
+        assertRejects(
+            () => validator.validate({
+                memory: -1,
+                cpu: 150,
+                connections: 100
+            }, limitsSchema),
+            ValidationError,
+            "Resource limits exceeded"
+        );
+    });
+});
