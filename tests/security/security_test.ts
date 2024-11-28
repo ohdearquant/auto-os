@@ -15,9 +15,43 @@ import { ValidationError } from "../../src/agent/errors.ts";
 Deno.test("Security Context", async (t) => {
     const context = createMockSecurityContext();
 
-    await t.step("validates permissions", async () => {
-        const allowed = await context.checkPermission("test_action");
+    await t.step("validates permission patterns", async () => {
+        // Test hierarchical permissions as specified in security-architecture.md
+        const allowed = await context.checkPermission({
+            type: "network",
+            action: "connect",
+            target: "api.example.com",
+            protocol: "https"
+        });
         assertEquals(allowed, true);
+
+        // Test permission inheritance
+        const childContext = await context.createChildContext({
+            scope: "limited"
+        });
+        assertEquals(await childContext.checkPermission("test_action"), true);
+    });
+
+    await t.step("enforces resource quotas", async () => {
+        const quotaContext = createMockSecurityContext({
+            limits: {
+                memory: 100 * 1024 * 1024, // 100MB
+                cpu: 50, // 50% CPU
+                connections: 10
+            }
+        });
+        
+        // Test memory quota
+        assertEquals(
+            await quotaContext.checkResourceLimit("memory", 50 * 1024 * 1024),
+            true
+        );
+        
+        // Test connection quota
+        assertEquals(
+            await quotaContext.checkResourceLimit("connections", 5),
+            true
+        );
     });
 
     await t.step("tracks principal", () => {

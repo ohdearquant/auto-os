@@ -171,6 +171,43 @@ Deno.test("System Performance", async (t) => {
         );
     });
 
+    await t.step("validates performance metrics", async () => {
+        const metrics = {
+            latency: [] as number[],
+            throughput: [] as number[],
+            resourceUsage: [] as number[]
+        };
+
+        // Run performance validation for specified duration
+        const startTime = performance.now();
+        const testDuration = 60 * 1000; // 1 minute test
+
+        while (performance.now() - startTime < testDuration) {
+            const iterationStart = performance.now();
+            
+            // Process batch of messages
+            await Promise.all(Array(100).fill(0).map(() => 
+                chat.sendMessage(createMockMessage())
+            ));
+
+            metrics.latency.push(performance.now() - iterationStart);
+            metrics.throughput.push(100000 / (performance.now() - iterationStart)); // msgs/sec
+            metrics.resourceUsage.push((await memory.getStats()).used);
+            
+            await new Promise(r => setTimeout(r, 100)); // Prevent overwhelming
+        }
+
+        // Validate against requirements from resource-scalability.md
+        const p95Latency = metrics.latency.sort((a,b) => a-b)[Math.floor(metrics.latency.length * 0.95)];
+        assertEquals(p95Latency < 200, true, "95th percentile latency should be <200ms");
+        
+        const avgThroughput = metrics.throughput.reduce((a,b) => a+b, 0) / metrics.throughput.length;
+        assertEquals(avgThroughput >= 1000, true, "Should handle 1000+ msgs/sec");
+        
+        const maxMemory = Math.max(...metrics.resourceUsage);
+        assertEquals(maxMemory < 256 * 1024 * 1024, true, "Should stay under 256MB memory");
+    });
+
     await t.step("maintains system stability", async () => {
         const iterations = 5;
         const results = [];
