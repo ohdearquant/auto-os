@@ -6,7 +6,8 @@
 import {
     assertEquals,
     assertExists,
-} from "https://deno.land/std/testing/asserts.ts";
+} from "https://deno.land/std/assert/assert_exists.ts";
+import { assertRejects } from "https://deno.land/std/assert/assert_rejects.ts";
 import { Logger } from "../../src/utils/logger.ts";
 import { ValidationError } from "../../src/agent/errors.ts";
 

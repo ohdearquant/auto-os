@@ -4,10 +4,11 @@
  */
 
 import {
-    assertEquals,
-    assertThrows,
-    assertExists
-} from "https://deno.land/std/testing/asserts.ts";
+    assertEquals
+} from "https://deno.land/std/assert/assert_equals.ts";
+import { assertThrows } from "https://deno.land/std/assert/assert_throws.ts";
+import { assertExists } from "https://deno.land/std/assert/assert_exists.ts";
+import { assertRejects } from "https://deno.land/std/assert/assert_rejects.ts";
 import { DirectChat } from "../chat/direct_chat.ts";
 import { GroupChat } from "../chat/group_chat.ts";
 import { ChatManager } from "../chat/manager.ts";
