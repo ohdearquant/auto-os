@@ -105,20 +105,25 @@ export class Logger {
      * Write log message to output
      */
     private writeLog(level: LogLevel, message: string): void {
-        switch (level) {
-            case "error":
-                console.error(message);
-                break;
-            case "warn":
-                console.warn(message);
-                break;
-            case "info":
-                console.info(message);
-                break;
-            case "debug":
-            default:
-                console.debug(message);
-                break;
+        try {
+            switch (level) {
+                case "error":
+                    console.error(message);
+                    break;
+                case "warn":
+                    console.warn(message);
+                    break;
+                case "info":
+                    console.info(message);
+                    break;
+                case "debug":
+                default:
+                    console.debug(message);
+                    break;
+            }
+        } catch (error) {
+            // Fallback to console.log if preferred method fails
+            console.log(`[FALLBACK] ${level.toUpperCase()}: ${message}`);
         }
     }
 }

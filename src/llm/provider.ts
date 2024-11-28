@@ -9,7 +9,9 @@ import {
     SecurityContext,
     DenoAgentsError,
     SecurityError,
-    ErrorCode
+    ErrorCode,
+    TokenUsage,
+    ResponseMetadata
 } from "../types/mod.ts";
 import { Logger } from "../utils/logger.ts";
 
