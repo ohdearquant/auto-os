@@ -27,8 +27,8 @@ Deno.test("Logger Configuration", async (t) => {
         new Logger({ source: "test", level: "error" });
 
         // Invalid level
-        assertRejects(
-            () => new Logger({ source: "test", level: "invalid" as any }),
+        await assertRejects(
+            async () => new Logger({ source: "test", level: "invalid" as any }),
             ValidationError,
             "Invalid log level"
         );

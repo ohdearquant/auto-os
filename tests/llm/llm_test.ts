@@ -6,6 +6,8 @@
 import {
     assertEquals,
     assertExists,
+    assertRejects,
+    assert
 } from "https://deno.land/std/testing/asserts.ts";
 import { createMockMessage, createMockLLMResponse } from "../utils/test_utils.ts";
 import { OpenAIProvider } from "../../src/llm/openai_provider.ts";
