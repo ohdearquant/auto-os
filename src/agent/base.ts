@@ -1,58 +1,148 @@
 /**
- * Base Agent Implementation
+ * Enhanced base agent with performance monitoring
  * @module agent/base
  */
 
-import { 
-    AgentConfig, 
-    AgentState, 
-    Message, 
+import {
+    Message,
+    AgentConfig,
+    AgentState,
     DenoAgentsError,
-    SecurityContext,
-    ValidationError,
-    SecurityError,
-    ErrorCode
+    SecurityContext
 } from "../types/mod.ts";
-import { validateMessage } from "../utils/validation.ts";
-import { createSecurityContext } from "../utils/security.ts";
 import { Logger } from "../utils/logger.ts";
+import { PerformanceOptimizer } from "../utils/performance.ts";
+import { SecurityPolicy } from "../security/policy.ts";
+import { SecurityValidator } from "../security/validator.ts";
 
 /**
- * Abstract base agent class providing core agent functionality
+ * Base agent implementation with security and performance
  */
 export abstract class BaseAgent {
     protected readonly state: AgentState;
-    protected readonly security: SecurityContext;
     protected readonly logger: Logger;
+    private readonly optimizer: PerformanceOptimizer;
+    private readonly security: SecurityPolicy;
+
+    constructor(protected readonly config: AgentConfig) {
+        this.state = this.initializeState();
+        this.logger = new Logger({
+            source: `Agent(${config.name})`
+        });
+        
+        this.optimizer = new PerformanceOptimizer(
+            config.limits ?? {
+                memory: 256 * 1024 * 1024, // 256MB
+                cpu: 1000 // 1s
+            }
+        );
+        
+        this.security = new SecurityPolicy(
+            this.createSecurityContext()
+        );
+    }
 
     /**
-     * Creates a new base agent instance
-     * @param config Agent configuration
-     * @throws ValidationError if configuration is invalid
+     * Enhanced message sending with security and performance
      */
-    constructor(protected readonly config: AgentConfig) {
-        this.validateConfig(config);
-        
-        this.state = this.initializeState();
-        this.security = createSecurityContext(config.permissions);
-        this.logger = new Logger({ 
-            source: `Agent(${config.name})`,
-            level: "info"
+    public async sendMessage(
+        message: Message,
+        recipient: BaseAgent
+    ): Promise<Message> {
+        return await this.optimizer.monitor(async () => {
+            // Validate message security
+            await SecurityValidator.validateInput(
+                message,
+                this.createSecurityContext()
+            );
+
+            // Check permissions
+            await this.security.enforcePermissions(
+                "send_message",
+                recipient.getId()
+            );
+
+            // Check rate limits
+            await this.security.enforceRateLimit(
+                "send_message",
+                100, // 100 messages
+                60000 // per minute
+            );
+
+            try {
+                const response = await recipient.receiveMessage(
+                    message,
+                    this
+                );
+
+                // Validate response
+                await SecurityValidator.validateInput(
+                    response,
+                    this.createSecurityContext()
+                );
+
+                return response;
+            } catch (error) {
+                this.logger.error("Message sending failed", {
+                    error
+                });
+                throw new DenoAgentsError(
+                    "Message sending failed",
+                    { originalError: error }
+                );
+            }
         });
     }
 
     /**
-     * Validates agent configuration
-     * @throws ValidationError for invalid configurations
+     * Batch process multiple operations efficiently
      */
-    private validateConfig(config: AgentConfig): void {
-        if (!config.id || !config.name) {
-            throw new ValidationError("Agent requires id and name");
-        }
-        if (!this.isSupportedType(config.type)) {
-            throw new ValidationError(`Unsupported agent type: ${config.type}`);
-        }
+    protected async processBatch<T, R>(
+        items: T[],
+        processor: (item: T) => Promise<R>
+    ): Promise<R[]> {
+        return await this.optimizer.processBatch(
+            items,
+            processor,
+            10 // batch size
+        );
     }
+
+    /**
+     * Gets agent identifier
+     */
+    public getId(): string {
+        return this.config.id;
+    }
+
+    /**
+     * Gets agent name
+     */
+    public getName(): string {
+        return this.config.name;
+    }
+
+    /**
+     * Gets agent type
+     */
+    public getType(): string {
+        return this.config.type;
+    }
+
+    /**
+     * Gets current agent state
+     */
+    public getState(): AgentState {
+        return { ...this.state };
+    }
+
+    /**
+     * Receives a message from another agent
+     */
+    public abstract receiveMessage(
+        message: Message,
+        sender: BaseAgent
+    ): Promise<Message>;
 
     /**
      * Initializes agent state
@@ -60,130 +150,30 @@ export abstract class BaseAgent {
     protected initializeState(): AgentState {
         return {
             status: "idle",
-            activeConversations: new Set(),
-            registeredFunctions: new Set(),
             messageCount: 0,
             lastActivity: Date.now()
         };
     }
 
     /**
-     * Sends a message to another agent
-     * @param message Message to send
-     * @param recipient Target agent
-     * @returns Promise resolving to the message response
-     * @throws DenoAgentsError on sending failure
+     * Creates security context
      */
-    public async sendMessage(
-        message: Message, 
-        recipient: BaseAgent
-    ): Promise<Message> {
-        try {
-            await this.validateMessage(message);
-            await this.checkPermissions("send_message");
-            
-            this.state.messageCount++;
-            this.state.lastActivity = Date.now();
-            
-            this.logger.debug("Sending message", { 
-                recipient: recipient.getId(),
-                messageId: message.id 
-            });
-            
-            return await recipient.receiveMessage(message, this);
-        } catch (error) {
-            this.logger.error("Failed to send message", { error });
-            throw new DenoAgentsError(
-                "Message sending failed",
-                ErrorCode.RUNTIME_ERROR,
-                { originalError: error }
-            );
-        }
-    }
-
-    /**
-     * Handles incoming messages
-     * @param message Received message
-     * @param sender Source agent
-     * @returns Promise resolving to response message
-     */
-    public async receiveMessage(
-        message: Message,
-        sender: BaseAgent
-    ): Promise<Message> {
-        try {
-            await this.validateMessage(message);
-            await this.checkPermissions("receive_message");
-            
-            this.state.messageCount++;
-            this.state.lastActivity = Date.now();
-            
-            return await this.processMessage(message, sender);
-        } catch (error) {
-            this.logger.error("Message processing failed", { error });
-            throw new DenoAgentsError(
-                "Message processing failed",
-                ErrorCode.RUNTIME_ERROR,
-                { originalError: error }
-            );
-        }
-    }
-
-    /**
-     * Processes received messages (to be implemented by subclasses)
-     */
-    protected abstract processMessage(
-        message: Message,
-        sender: BaseAgent
-    ): Promise<Message>;
-
-    /**
-     * Checks if the agent has required permissions
-     * @throws SecurityError if permission is denied
-     */
-    protected async checkPermissions(
-        action: string,
-        context?: Record<string, unknown>
-    ): Promise<void> {
-        const allowed = await this.security.checkPermission(
-            action,
-            context
-        );
-        
-        if (!allowed) {
-            throw new SecurityError(
-                `Permission denied: ${action}`,
-                { context }
-            );
-        }
-    }
-
-    /**
-     * Validates incoming/outgoing messages
-     */
-    protected async validateMessage(message: Message): Promise<void> {
-        await validateMessage(message);
-    }
-
-    // Utility methods
-    public getId(): string {
-        return this.config.id;
-    }
-
-    public getName(): string {
-        return this.config.name;
-    }
-
-    public getType(): string {
-        return this.config.type;
-    }
-
-    public getState(): Readonly<AgentState> {
-        return { ...this.state };
-    }
-
-    private isSupportedType(type: string): boolean {
-        return ["base", "conversable", "assistant", "userProxy", "custom"]
-            .includes(type);
+    protected createSecurityContext(): SecurityContext {
+        return {
+            principal: this.config.id,
+            scope: `agent:${this.config.id}`,
+            context: {
+                agentType: this.config.type,
+                permissions: this.config.permissions
+            },
+            timestamp: Date.now(),
+            async checkPermission(
+                action: string,
+                context?: Record<string, unknown>
+            ): Promise<boolean> {
+                // Implement permission checking
+                return true; // Placeholder
+            }
+        };
     }
 }
