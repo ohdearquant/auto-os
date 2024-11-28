@@ -228,3 +228,67 @@ Deno.test("Error Chain", async (t) => {
         );
     });
 });
+
+Deno.test("Error Context Chain", async (t) => {
+    await t.step("preserves error context through chain", () => {
+        const baseError = new Error("Original error");
+        const validationError = new ValidationError("Validation failed", {
+            field: "test",
+            value: null,
+            originalError: baseError
+        });
+        const securityError = new SecurityError("Security check failed", {
+            permission: "read",
+            originalError: validationError
+        });
+
+        // Verify context preservation
+        assertEquals(securityError.permission, "read");
+        assertEquals(
+            (securityError.originalError as ValidationError).field,
+            "test"
+        );
+        assertEquals(
+            ((securityError.originalError as ValidationError).originalError as Error).message,
+            "Original error"
+        );
+    });
+});
+
+Deno.test("Error Code Coverage", async (t) => {
+    await t.step("covers all error codes", () => {
+        // Test each error code has corresponding error class
+        const errorCodes = Object.values(ErrorCode);
+        const errorClasses = [
+            ValidationError,
+            SecurityError,
+            ResourceError,
+            TimeoutError,
+            InitializationError,
+            RuntimeError
+        ];
+
+        assertEquals(
+            errorCodes.length,
+            errorClasses.length,
+            "Each error code should have corresponding class"
+        );
+    });
+});
+
+Deno.test("Error Recovery", async (t) => {
+    await t.step("supports recovery metadata", () => {
+        const error = new DenoAgentsError("Test error", {
+            code: ErrorCode.RUNTIME_ERROR,
+            context: {
+                recoverable: true,
+                retryCount: 2,
+                lastAttempt: Date.now()
+            }
+        });
+
+        assertExists(error.context?.recoverable);
+        assertExists(error.context?.retryCount);
+        assertExists(error.context?.lastAttempt);
+    });
+});
