@@ -1,11 +1,9 @@
 /**
  * Chat system tests
- * @module test/chat
+ * @module tests/chat/chat_test
  */
 
-import {
-    assertEquals
-} from "https://deno.land/std/assert/assert_equals.ts";
+import { assertEquals } from "https://deno.land/std/assert/assert_equals.ts";
 import { assertThrows } from "https://deno.land/std/assert/assert_throws.ts";
 import { assertExists } from "https://deno.land/std/assert/assert_exists.ts";
 import { assertRejects } from "https://deno.land/std/assert/assert_rejects.ts";
@@ -15,102 +13,108 @@ import { ChatManager } from "../chat/manager.ts";
 import { createTestContext, createTestMessage } from "./setup.ts";
 
 Deno.test("Chat System", async (t) => {
-    await t.step("Direct Chat", async () => {
-        const chat = new DirectChat({
-            id: "test-chat",
-            security: createTestContext()
-        });
-
-        // Test participant management
-        await chat.addParticipant("participant1");
-        await chat.addParticipant("participant2");
-        
-        assertEquals(chat.getParticipants().length, 2);
-
-        // Test message handling
-        await chat.sendMessage(createTestMessage({
-            metadata: {
-                senderId: "participant1",
-                recipientId: "participant2",
-                conversationId: "test-chat",
-                timestamp: Date.now()
-            }
-        }));
-
-        assertEquals(chat.getHistory().length, 1);
-
-        // Test participant limit
-        await assertThrows(
-            () => chat.addParticipant("participant3"),
-            Error,
-            "Chat at capacity"
-        );
+  await t.step("Direct Chat", async () => {
+    const chat = new DirectChat({
+      id: "test-chat",
+      security: createTestContext(),
     });
 
-    await t.step("Group Chat", async () => {
-        const chat = new GroupChat({
-            id: "test-group",
-            security: createTestContext(),
-            maxParticipants: 5,
-            moderators: ["mod1"]
-        });
+    // Test participant management
+    await chat.addParticipant("participant1");
+    await chat.addParticipant("participant2");
 
-        // Test participant management
-        await chat.addParticipant("participant1");
-        await chat.addParticipant("participant2");
-        await chat.addParticipant("mod1");
+    assertEquals(chat.getParticipants().length, 2);
 
-        assertEquals(chat.getParticipants().length, 3);
+    // Test message handling
+    await chat.sendMessage(
+      createTestMessage({
+        metadata: {
+          senderId: "participant1",
+          recipientId: "participant2",
+          conversationId: "test-chat",
+          timestamp: Date.now(),
+        },
+      }),
+    );
 
-        // Test message broadcasting
-        await chat.sendMessage(createTestMessage({
-            metadata: {
-                senderId: "participant1",
-                conversationId: "test-group",
-                timestamp: Date.now()
-            }
-        }));
+    assertEquals(chat.getHistory().length, 1);
 
-        assertEquals(chat.getHistory().length, 1);
+    // Test participant limit
+    await assertRejects(
+      () => chat.addParticipant("participant3"),
+      Error,
+      "Chat at capacity",
+    );
+  });
 
-        // Test moderator functions
-        await chat.addModerator("participant2", "mod1");
-        await assertThrows(
-            () => chat.addModerator("participant1", "participant2"),
-            Error,
-            "Not a moderator"
-        );
+  await t.step("Group Chat", async () => {
+    const chat = new GroupChat({
+      id: "test-group",
+      security: createTestContext(),
+      maxParticipants: 5,
+      moderators: ["mod1"],
     });
 
-    await t.step("Chat Manager", async () => {
-        const manager = new ChatManager(createTestContext());
+    // Test participant management
+    await chat.addParticipant("participant1");
+    await chat.addParticipant("participant2");
+    await chat.addParticipant("mod1");
 
-        // Test chat creation
-        const chat = await manager.createChat("direct", {
-            id: "managed-chat",
-            security: createTestContext()
-        });
+    assertEquals(chat.getParticipants().length, 3);
 
-        assertExists(chat);
-        assertEquals(manager.listChats().length, 1);
+    // Test message broadcasting
+    await chat.sendMessage(
+      createTestMessage({
+        metadata: {
+          senderId: "participant1",
+          conversationId: "test-group",
+          timestamp: Date.now(),
+        },
+      }),
+    );
 
-        // Test message routing
-        await chat.addParticipant("participant1");
-        await chat.addParticipant("participant2");
+    assertEquals(chat.getHistory().length, 1);
 
-        await manager.routeMessage(createTestMessage({
-            metadata: {
-                senderId: "participant1",
-                recipientId: "participant2",
-                conversationId: "managed-chat",
-                timestamp: Date.now()
-            }
-        }));
+    // Test moderator functions
+    await chat.addModerator("participant2", "mod1");
+    await assertRejects(
+      () => chat.addModerator("participant1", "participant2"),
+      Error,
+      "Not a moderator",
+    );
+  });
 
-        assertEquals(chat.getHistory().length, 1);
+  await t.step("Chat Manager", async () => {
+    const manager = new ChatManager(createTestContext());
 
-        // Test chat removal
-        await manager.removeChat("managed-chat");
-        assertEquals(manager.listChats().length, 0);
+    // Test chat creation
+    const chat = await manager.createChat("direct", {
+      id: "managed-chat",
+      security: createTestContext(),
     });
+
+    assertExists(chat);
+    assertEquals(manager.listChats().length, 1);
+
+    // Test message routing
+    await chat.addParticipant("participant1");
+    await chat.addParticipant("participant2");
+
+    await manager.routeMessage(
+      createTestMessage({
+        metadata: {
+          senderId: "participant1",
+          recipientId: "participant2",
+          conversationId: "managed-chat",
+          timestamp: Date.now(),
+        },
+      }),
+    );
+
+    assertEquals(chat.getHistory().length, 1);
+
+    // Test chat removal
+    await manager.removeChat("managed-chat");
+    assertEquals(manager.listChats().length, 0);
+  });
 });

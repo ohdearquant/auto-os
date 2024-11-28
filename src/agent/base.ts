@@ -7,8 +7,11 @@ import {
     Message,
     AgentConfig,
     AgentState,
-    DenoAgentsError,
-    SecurityContext
+    AgentStatus,
+    SecurityContext,
+    ValidationError,
+    MessageMetadata,
+    RuntimeError,
 } from "../types/mod.ts";
 import { Logger } from "../utils/logger.ts";
 import { PerformanceOptimizer } from "../utils/performance.ts";
@@ -24,18 +27,22 @@ export abstract class BaseAgent {
     private readonly optimizer: PerformanceOptimizer;
     private readonly security: SecurityPolicy;
 
-    constructor(protected readonly config: AgentConfig) {
+    constructor(public readonly config: AgentConfig) {
+        // Validate required config fields
+        if (!config.name || config.name.trim() === "") {
+            throw new ValidationError("Agent name is required");
+        }
+
         this.state = this.initializeState();
         this.logger = new Logger({
-            source: `Agent(${config.name})`
+            source: `Agent(${config.name})`,
+            level: "info"
         });
         
-        this.optimizer = new PerformanceOptimizer(
-            config.limits ?? {
-                memory: 256 * 1024 * 1024, // 256MB
-                cpu: 1000 // 1s
-            }
-        );
+        this.optimizer = new PerformanceOptimizer({
+            memory: 256 * 1024 * 1024, // 256MB
+            cpu: 1000 // 1s
+        });
         
         this.security = new SecurityPolicy(
             this.createSecurityContext()
@@ -49,31 +56,32 @@ export abstract class BaseAgent {
         message: Message,
         recipient: BaseAgent
     ): Promise<Message> {
+        if (this.state.status === "terminated") {
+            throw new Error("Agent is terminated");
+        }
+
         return await this.optimizer.monitor(async () => {
-            // Validate message security
-            await SecurityValidator.validateInput(
-                message,
-                this.createSecurityContext()
-            );
-
-            // Check permissions
-            await this.security.enforcePermissions(
-                "send_message",
-                recipient.getId()
-            );
-
-            // Check rate limits
-            await this.security.enforceRateLimit(
-                "send_message",
-                100, // 100 messages
-                60000 // per minute
-            );
-
             try {
-                const response = await recipient.receiveMessage(
+                // Validate message security
+                await SecurityValidator.validateInput(
                     message,
-                    this
+                    this.createSecurityContext()
                 );
+
+                // Check permissions
+                await this.security.enforcePermissions(
+                    "send_message",
+                    recipient.getId()
+                );
+
+                // Check rate limits
+                await this.security.enforceRateLimit(
+                    "send_message",
+                    100, // 100 messages
+                    60000 // per minute
+                );
+
+                const response = await recipient.receiveMessage(message, this);
 
                 // Validate response
                 await SecurityValidator.validateInput(
@@ -86,13 +94,63 @@ export abstract class BaseAgent {
                 this.logger.error("Message sending failed", {
                     error
                 });
-                throw new DenoAgentsError(
-                    "Message sending failed",
-                    { originalError: error }
-                );
+                throw new RuntimeError("Message sending failed", { originalError: error });
             }
         });
     }
+
+    /**
+     * Creates a new message with updated metadata
+     */
+    protected createMessage(
+        originalMessage: Message,
+        content: string,
+        role: Message["role"] = "assistant"
+    ): Message {
+        const metadata: MessageMetadata = {
+            senderId: this.getId(),
+            recipientId: originalMessage.metadata.senderId,
+            conversationId: originalMessage.metadata.conversationId,
+            timestamp: Date.now(),
+            parentMessageId: originalMessage.id
+        };
+
+        return {
+            id: crypto.randomUUID(),
+            role,
+            content,
+            timestamp: Date.now(),
+            metadata
+        };
+    }
+
+    /**
+     * Receives a message from another agent
+     */
+    public abstract receiveMessage(
+        message: Message,
+        sender: BaseAgent
+    ): Promise<Message>;
+
+    /**
+     * Handles system messages
+     */
+    protected abstract handleSystemMessage(message: Message): Promise<Message>;
+
+    /**
+     * Handles user messages
+     */
+    protected abstract handleUserMessage(message: Message): Promise<Message>;
+
+    /**
+     * Handles function messages
+     */
+    protected abstract handleFunctionMessage(message: Message): Promise<Message>;
+
+    /**
+     * Handles tool messages
+     */
+    protected abstract handleToolMessage(message: Message): Promise<Message>;
 
     /**
      * Batch process multiple operations efficiently
@@ -137,12 +195,38 @@ export abstract class BaseAgent {
     }
 
     /**
-     * Receives a message from another agent
+     * Terminates the agent
      */
-    public abstract receiveMessage(
-        message: Message,
-        sender: BaseAgent
-    ): Promise<Message>;
+    public async terminate(): Promise<void> {
+        this.updateStatus("terminated");
+    }
+
+    /**
+     * Resets the agent state
+     */
+    public async reset(): Promise<void> {
+        const newState = this.initializeState();
+        this.updateState(newState);
+    }
+
+    /**
+     * Updates agent status
+     */
+    protected updateStatus(status: AgentStatus): void {
+        this.state.status = status;
+        this.state.lastActivity = Date.now();
+    }
+
+    /**
+     * Updates agent state
+     */
+    protected updateState(newState: AgentState): void {
+        this.state.status = newState.status;
+        this.state.messageCount = newState.messageCount;
+        this.state.lastActivity = newState.lastActivity;
+        this.state.activeConversations = new Set(newState.activeConversations);
+        this.state.registeredFunctions = new Set(newState.registeredFunctions);
+    }
 
     /**
      * Initializes agent state
@@ -151,7 +235,9 @@ export abstract class BaseAgent {
         return {
             status: "idle",
             messageCount: 0,
-            lastActivity: Date.now()
+            lastActivity: Date.now(),
+            activeConversations: new Set(),
+            registeredFunctions: new Set()
         };
     }
 
@@ -168,8 +254,8 @@ export abstract class BaseAgent {
             },
             timestamp: Date.now(),
             async checkPermission(
-                action: string,
-                context?: Record<string, unknown>
+                _action: string,
+                _context?: Record<string, unknown>
             ): Promise<boolean> {
                 // Implement permission checking
                 return true; // Placeholder

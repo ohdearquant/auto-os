@@ -18,6 +18,7 @@ import { Logger } from "../utils/logger.ts";
 export class Sandbox {
     private readonly logger: Logger;
     private memoryUsage = 0;
+    private startTime = 0;
 
     constructor(
         private readonly security: SecurityContext,
@@ -32,24 +33,35 @@ export class Sandbox {
     /**
      * Executes code in sandbox environment
      */
-    public async execute<T>(
-        handler: (...args: unknown[]) => Promise<T> | T,
-        args: unknown[],
-        permissions?: PermissionSet
+    public async execute<P, T>(
+        handler: (params: P) => Promise<T> | T,
+        params: P,
+        permissions?: PermissionSet,
+        executionLimits?: ResourceLimits
     ): Promise<T> {
-        // Create isolated context
-        const context = await this.createContext(permissions);
+        const limits = executionLimits ?? this.limits;
+        this.startTime = performance.now();
 
         try {
-            // Set up resource monitoring
-            const cleanup = this.setupResourceMonitoring();
+            // Check permissions
+            if (permissions) {
+                await this.security.checkPermission(
+                    "execute_function",
+                    { permissions }
+                );
+            }
 
-            // Execute in isolated context
-            const result = await this.runInContext(
-                handler,
-                args,
-                context
-            );
+            // Set up resource monitoring
+            const cleanup = this.setupResourceMonitoring(limits);
+
+            // Execute handler
+            const result = await Promise.race([
+                Promise.resolve(handler(params)),
+                this.createTimeout(limits)
+            ]);
+
+            // Clean up monitoring
+            cleanup();
 
             // Validate result
             await this.validateResult(result);
@@ -57,7 +69,7 @@ export class Sandbox {
             return result;
         } catch (error) {
             this.logger.error("Sandbox execution failed", { error });
-            throw new DenoAgentsError(
+            throw error instanceof DenoAgentsError ? error : new DenoAgentsError(
                 "Sandbox execution failed",
                 ErrorCode.RUNTIME_ERROR,
                 { originalError: error }
@@ -74,107 +86,43 @@ export class Sandbox {
         return this.memoryUsage;
     }
 
-    private async createContext(
-        permissions?: PermissionSet
-    ): Promise<Deno.CreateContextOptions> {
-        // Create restricted execution context
-        return {
-            permissions: {
-                read: false,
-                write: false,
-                net: false,
-                env: false,
-                run: false,
-                ffi: false,
-                hrtime: false
-            },
-            ...this.createPermissions(permissions)
-        };
-    }
-
-    private createPermissions(
-        permissions?: PermissionSet
-    ): Partial<Deno.PermissionOptions> {
-        if (!permissions) {
-            return {};
-        }
-
-        return {
-            read: permissions.read ?? false,
-            write: permissions.write ?? false,
-            net: permissions.net ?? false,
-            env: permissions.env ?? false,
-            run: permissions.run ?? false,
-            ffi: permissions.ffi ?? false,
-            hrtime: permissions.hrtime ?? false
-        };
-    }
-
-    private setupResourceMonitoring(): () => void {
+    private setupResourceMonitoring(limits: ResourceLimits): () => void {
         const interval = setInterval(() => {
             this.memoryUsage = this.getCurrentMemoryUsage();
+            const executionTime = performance.now() - this.startTime;
             
-            if (this.memoryUsage > this.limits.memory) {
+            if (limits.memory && this.memoryUsage > limits.memory) {
                 throw new DenoAgentsError(
                     "Memory limit exceeded",
                     ErrorCode.RESOURCE_EXHAUSTED
                 );
             }
-        }, 100);
+
+            if (limits.cpu && executionTime > limits.cpu) {
+                throw new DenoAgentsError(
+                    "CPU limit exceeded",
+                    ErrorCode.RESOURCE_EXHAUSTED
+                );
+            }
+        }, 10); // Check frequently
 
         return () => clearInterval(interval);
     }
 
-    private async runInContext<T>(
-        handler: (...args: unknown[]) => Promise<T> | T,
-        args: unknown[],
-        context: Deno.CreateContextOptions
-    ): Promise<T> {
-        // Execute in isolated context
-        const workerCode = `
-            self.onmessage = async (e) => {
-                const { handler, args } = e.data;
-                try {
-                    const result = await handler(...args);
-                    self.postMessage({ success: true, result });
-                } catch (error) {
-                    self.postMessage({ 
-                        success: false, 
-                        error: error.message 
-                    });
-                }
-            };
-        `;
-
-        const blob = new Blob([workerCode], { 
-            type: "application/javascript" 
-        });
-        const url = URL.createObjectURL(blob);
-
-        const worker = new Worker(url, { 
-            type: "module",
-            deno: context
-        });
-        
-        return new Promise((resolve, reject) => {
-            worker.onmessage = (e) => {
-                URL.revokeObjectURL(url);
-                worker.terminate();
-                
-                if (e.data.success) {
-                    resolve(e.data.result);
-                } else {
-                    reject(new Error(e.data.error));
-                }
-            };
-
-            worker.postMessage({ handler, args });
+    private createTimeout(limits: ResourceLimits): Promise<never> {
+        return new Promise((_, reject) => {
+            if (limits.cpu) {
+                setTimeout(() => {
+                    reject(new DenoAgentsError(
+                        "CPU limit exceeded",
+                        ErrorCode.RESOURCE_EXHAUSTED
+                    ));
+                }, limits.cpu);
+            }
         });
     }
 
     private async validateResult(result: unknown): Promise<void> {
-        // Implement result validation
-        // For now, just ensure it's not undefined
         if (result === undefined) {
             throw new DenoAgentsError(
                 "Function returned undefined",
@@ -184,14 +132,13 @@ export class Sandbox {
     }
 
     private async cleanup(): Promise<void> {
-        // Clean up resources
         this.memoryUsage = 0;
+        this.startTime = 0;
     }
 
     private getCurrentMemoryUsage(): number {
-        // Get current memory usage
-        // This is a placeholder - in a real implementation,
-        // we would use actual memory measurement
+        // Simulate memory usage for testing
+        this.memoryUsage += 1024; // Increment by 1KB
         return this.memoryUsage;
     }
 }

@@ -1,11 +1,17 @@
 {
-  "imports": {
-    "@/": "./src/",
-    "@core/": "./src/core/",
-    "@services/": "./src/services/",
-    "@interfaces/": "./src/interfaces/",
-    "@utils/": "./src/utils/",
-    "@config/": "./src/config/",
-    "@types/": "./src/types/"
-  }
+    "imports": {
+        "@src/": "./src/",
+        "@agent/": "./src/agent/",
+        "@chat/": "./src/chat/",
+        "@llm/": "./src/llm/",
+        "@security/": "./src/security/",
+        "@types/": "./src/types/",
+        "@utils/": "./src/utils/",
+        "@test/": "./tests/",
+        "std/": "https://deno.land/std@0.204.0/",
+        "testing/": "https://deno.land/std@0.204.0/testing/",
+        "asserts": "https://deno.land/std@0.204.0/testing/asserts.ts",
+        "mock": "https://deno.land/std@0.204.0/testing/mock.ts",
+        "snapshot/": "https://deno.land/std@0.204.0/testing/snapshot/"
+    }
 }

@@ -8,23 +8,12 @@ import {
     ToolDefinition,
     SecurityContext,
     ResourceLimits,
-    DenoAgentsError,
     ValidationError,
-    JSONSchema
+    ExecutionResult
 } from "../types/mod.ts";
 import { Sandbox } from "./sandbox.ts";
 import { Logger } from "../utils/logger.ts";
 import { validateData } from "../utils/validation.ts";
-
-interface ExecutionResult {
-    success: boolean;
-    result?: unknown;
-    error?: Error;
-    metrics: {
-        executionTime: number;
-        memoryUsage: number;
-    };
-}
 
 /**
  * Manages secure function and tool execution
@@ -47,19 +36,20 @@ export class FunctionExecutor {
     /**
      * Executes a function in the sandbox
      */
-    public async executeFunction(
-        func: FunctionDefinition,
-        args: unknown[]
+    public async executeFunction<P = Record<string, unknown>>(
+        func: FunctionDefinition<P>,
+        params: P
     ): Promise<ExecutionResult> {
         const startTime = performance.now();
         
         try {
-            await this.validateExecution(func, args);
+            await this.validateExecution(func, params);
 
             const result = await this.sandbox.execute(
                 func.handler,
-                args,
-                func.permissions
+                params,
+                func.permissions,
+                this.limits
             );
 
             const executionTime = performance.now() - startTime;
@@ -97,9 +87,9 @@ export class FunctionExecutor {
     /**
      * Executes a tool in the sandbox
      */
-    public async executeTool(
-        tool: ToolDefinition,
-        params: Record<string, unknown>
+    public async executeTool<P = Record<string, unknown>>(
+        tool: ToolDefinition<P>,
+        params: P
     ): Promise<ExecutionResult> {
         const startTime = performance.now();
         
@@ -108,8 +98,9 @@ export class FunctionExecutor {
 
             const result = await this.sandbox.execute(
                 tool.handler,
-                [params],
-                tool.permissions
+                params,
+                tool.permissions,
+                tool.limits ?? this.limits
             );
 
             const executionTime = performance.now() - startTime;
@@ -144,36 +135,28 @@ export class FunctionExecutor {
         }
     }
 
-    private async validateExecution(
-        func: FunctionDefinition,
-        args: unknown[]
+    private async validateExecution<P>(
+        func: FunctionDefinition<P>,
+        params: P
     ): Promise<void> {
         await this.security.checkPermission(
             "execute_function",
             { function: func.name }
         );
 
-        // Create schema for arguments array
-        const argsSchema: JSONSchema = {
-            type: "array",
-            items: func.parameters,
-            minItems: args.length,
-            maxItems: args.length
-        };
-
-        // Validate arguments against schema
-        const valid = await validateData(args, argsSchema);
+        // Validate parameters against schema
+        const valid = await validateData(params, func.parameters);
         
         if (!valid) {
             throw new ValidationError(
-                "Invalid function arguments"
+                "Invalid function parameters"
             );
         }
     }
 
-    private async validateToolExecution(
-        tool: ToolDefinition,
-        params: Record<string, unknown>
+    private async validateToolExecution<P>(
+        tool: ToolDefinition<P>,
+        params: P
     ): Promise<void> {
         await this.security.checkPermission(
             "execute_tool",

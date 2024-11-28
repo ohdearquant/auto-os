@@ -11,7 +11,8 @@ import type {
     LLMConfig,
     FunctionDefinition,
     Result,
-    SecurityContext
+    SecurityContext,
+    AgentType
 } from "../../src/types/mod.ts";
 
 /**
@@ -21,20 +22,23 @@ export function createMockMessage(
     partial: Partial<Message> = {}
 ): Message {
     const metadata: MessageMetadata = {
-        senderId: "test-sender",
-        recipientId: "test-recipient",
-        conversationId: "test-conversation",
-        timestamp: Date.now(),
-        ...partial.metadata
+        senderId: partial.metadata?.senderId ?? "test-sender",
+        recipientId: partial.metadata?.recipientId ?? "test-recipient",
+        conversationId: partial.metadata?.conversationId ?? "test-conversation",
+        timestamp: partial.metadata?.timestamp ?? Date.now(),
+        parentMessageId: partial.metadata?.parentMessageId,
+        metadata: partial.metadata?.metadata
     };
 
     return {
-        id: crypto.randomUUID(),
-        role: "user",
-        content: "Test message",
-        timestamp: Date.now(),
-        metadata,
-        ...partial
+        id: partial.id ?? crypto.randomUUID(),
+        role: partial.role ?? "user",
+        content: partial.content ?? "Test message",
+        name: partial.name,
+        timestamp: partial.timestamp ?? Date.now(),
+        function_call: partial.function_call,
+        tool_calls: partial.tool_calls,
+        metadata
     };
 }
 
@@ -45,10 +49,15 @@ export function createMockAgentConfig(
     partial: Partial<AgentConfig> = {}
 ): AgentConfig {
     return {
-        id: crypto.randomUUID(),
-        name: `test-agent-${crypto.randomUUID()}`,
-        type: "base",
-        ...partial
+        id: partial.id ?? crypto.randomUUID(),
+        name: partial.name ?? `test-agent-${crypto.randomUUID()}`,
+        type: (partial.type ?? "base") as AgentType,
+        systemMessage: partial.systemMessage,
+        llmConfig: partial.llmConfig,
+        maxConsecutiveAutoReply: partial.maxConsecutiveAutoReply,
+        humanInputMode: partial.humanInputMode,
+        permissions: partial.permissions,
+        metadata: partial.metadata
     };
 }
 
@@ -59,33 +68,32 @@ export function createMockLLMConfig(
     partial: Partial<LLMConfig> = {}
 ): LLMConfig {
     return {
-        id: crypto.randomUUID(),
-        name: "test-model",
-        provider: "openai",
-        model: "gpt-4",
+        provider: partial.provider ?? "openai",
+        model: partial.model ?? "gpt-4",
         apiConfig: {
-            apiKey: "test-key",
-            ...partial.apiConfig
+            apiKey: partial.apiConfig?.apiKey ?? "test-key",
+            organization: partial.apiConfig?.organization,
+            endpoint: partial.apiConfig?.endpoint
         },
-        ...partial
+        parameters: partial.parameters,
+        rateLimit: partial.rateLimit
     };
 }
 
 /**
  * Creates a mock function definition for testing
  */
-export function createMockFunctionDefinition(
+export function createMockFunctionDefinition<T extends Record<string, unknown>>(
     name = "test-function",
-    handler = async () => "test-result"
-): FunctionDefinition {
+    handler: (params: T) => unknown = async () => "test-result"
+): FunctionDefinition<T> {
     return {
         name,
         description: "Test function",
         parameters: {
             type: "object",
-            properties: {
-                input: { type: "string" }
-            }
+            properties: {},
+            required: []
         },
         returns: { type: "string" },
         handler

@@ -14,7 +14,7 @@
     
     "fmt": {
         "files": {
-            "include": ["src/"]
+            "include": ["src/", "tests/"]
         },
         "options": {
             "useTabs": false,
@@ -26,11 +26,11 @@
     
     "test": {
         "files": {
-            "include": ["src/**/*_test.ts"]
+            "include": ["tests/**/*_test.ts"]
         },
         "coverage": {
             "include": ["src/**/*.ts"],
-            "exclude": ["src/**/*_test.ts"],
+            "exclude": ["tests/**/*_test.ts"],
             "threshold": {
                 "branches": 80,
                 "functions": 80,
@@ -42,7 +42,7 @@
 
     "lint": {
         "files": {
-            "include": ["src/"]
+            "include": ["src/", "tests/"]
         },
         "rules": {
             "tags": ["recommended"],
@@ -52,17 +52,20 @@
 
     "tasks": {
         "test": "deno test --allow-net --allow-read --allow-write --coverage=coverage",
-        "coverage": "deno coverage coverage",
-        "check-coverage": "deno coverage coverage --threshold=80",
+        "test:unit": "deno test --allow-net --allow-read --allow-write tests/agent/ tests/chat/ tests/function/ tests/llm/ tests/utils/ tests/security/",
+        "test:integration": "deno test --allow-net --allow-read --allow-write tests/integration/",
+        "test:coverage": "deno coverage coverage",
+        "test:check-coverage": "deno coverage coverage --threshold=80",
         "lint": "deno lint",
         "fmt": "deno fmt",
-        "check": "deno check src/**/*.ts",
+        "check": "deno check src/**/*.ts tests/**/*.ts",
         "build": "deno bundle src/mod.ts dist/denoagents.js",
         "clean": "rm -rf coverage dist"
     },
 
     "imports": {
         "std/": "https://deno.land/std@0.204.0/",
-        "testing/": "https://deno.land/std@0.204.0/testing/"
+        "testing/": "https://deno.land/std@0.204.0/testing/",
+        "asserts/": "https://deno.land/std@0.204.0/testing/asserts/"
     }
 }

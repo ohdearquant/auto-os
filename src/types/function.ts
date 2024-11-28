@@ -8,7 +8,7 @@ import type { PermissionSet, ResourceLimits } from "./security.ts";
 /**
  * Function definition interface
  */
-export interface FunctionDefinition {
+export interface FunctionDefinition<P = Record<string, unknown>> {
     /** Function name */
     readonly name: string;
     /** Function description */
@@ -16,9 +16,9 @@ export interface FunctionDefinition {
     /** Parameter schema (JSON Schema) */
     parameters: JSONSchema;
     /** Return value schema */
-    returns: JSONSchema;
+    returns?: JSONSchema;
     /** Function implementation */
-    handler: (...args: unknown[]) => Promise<unknown>;
+    handler: (params: P) => unknown;
     /** Required permissions */
     permissions?: PermissionSet;
     /** Execution timeout (ms) */
@@ -28,7 +28,7 @@ export interface FunctionDefinition {
 /**
  * Tool definition interface
  */
-export interface ToolDefinition {
+export interface ToolDefinition<P = Record<string, unknown>> {
     /** Tool identifier */
     readonly name: string;
     /** Tool description */
@@ -36,7 +36,7 @@ export interface ToolDefinition {
     /** Parameter schema */
     parameters: JSONSchema;
     /** Tool implementation */
-    handler: (params: Record<string, unknown>) => Promise<unknown>;
+    handler: (params: P) => unknown;
     /** Required permissions */
     permissions?: PermissionSet;
     /** Resource limits */
@@ -80,3 +80,16 @@ export type JSONSchema = {
     items?: JSONSchema;
     [key: string]: unknown;
 };
+
+/**
+ * Function execution result
+ */
+export interface ExecutionResult<T = unknown> {
+    success: boolean;
+    result?: T;
+    error?: Error;
+    metrics: {
+        executionTime: number;
+        memoryUsage: number;
+    };
+}
