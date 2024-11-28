@@ -1,14 +1,16 @@
 /**
  * Test utilities for the DenoAgents Framework
- * @module tests/utils
+ * @module test/utils
  */
 
 import type { 
-    Agent, 
-    Message, 
-    AgentConfig, 
+    Message,
+    MessageMetadata,
+    AgentConfig,
+    LLMConfig,
+    FunctionDefinition,
     Result,
-    MessageMetadata 
+    SecurityContext
 } from "../../types/mod.ts";
 
 /**
@@ -50,56 +52,48 @@ export function createMockAgentConfig(
 }
 
 /**
- * Test agent implementation for testing
+ * Creates a mock LLM config for testing
  */
-export class TestAgent implements Agent {
-    constructor(readonly config: AgentConfig) {}
+export function createMockLLMConfig(
+    partial: Partial<LLMConfig> = {}
+): LLMConfig {
+    return {
+        id: crypto.randomUUID(),
+        name: "test-model",
+        provider: "openai",
+        model: "gpt-4",
+        apiConfig: {
+            apiKey: "test-key",
+            ...partial.apiConfig
+        },
+        ...partial
+    };
+}
 
-    async sendMessage(message: Message): Promise<Result<Message, Error>> {
-        return {
-            success: true,
-            value: createMockMessage({
-                role: "assistant",
-                content: `Response to: ${message.content}`,
-                metadata: {
-                    senderId: this.config.id,
-                    recipientId: message.metadata.senderId,
-                    conversationId: message.metadata.conversationId,
-                    timestamp: Date.now()
-                }
-            })
-        };
-    }
-
-    async receiveMessage(message: Message): Promise<Result<Message, Error>> {
-        return {
-            success: true,
-            value: createMockMessage({
-                role: "assistant",
-                content: `Received: ${message.content}`,
-                metadata: {
-                    senderId: this.config.id,
-                    recipientId: message.metadata.senderId,
-                    conversationId: message.metadata.conversationId,
-                    timestamp: Date.now()
-                }
-            })
-        };
-    }
-
-    async reset(): Promise<void> {
-        // No-op for testing
-    }
-
-    async terminate(): Promise<void> {
-        // No-op for testing
-    }
+/**
+ * Creates a mock function definition for testing
+ */
+export function createMockFunctionDefinition(
+    name = "test-function",
+    handler = async () => "test-result"
+): FunctionDefinition {
+    return {
+        name,
+        description: "Test function",
+        parameters: {
+            type: "object",
+            properties: {
+                input: { type: "string" }
+            }
+        },
+        handler
+    };
 }
 
 /**
  * Creates a mock security context for testing
  */
-export function createMockSecurityContext() {
+export function createMockSecurityContext(): SecurityContext {
     return {
         principal: "test-principal",
         scope: "test-scope",
@@ -119,42 +113,14 @@ export function createMockSecurityContext() {
  */
 export function createMockLLMResponse(
     content = "Test response"
-) {
+): Result<Message> {
     return {
-        choices: [{
-            message: {
-                content,
-                role: "assistant"
-            },
-            finish_reason: "stop"
-        }],
-        usage: {
-            prompt_tokens: 10,
-            completion_tokens: 5,
-            total_tokens: 15
-        },
-        model: "test-model"
-    };
-}
-
-/**
- * Creates a mock function definition for testing
- */
-export function createMockFunctionDefinition(
-    name = "test-function",
-    handler = async () => "test-result"
-) {
-    return {
-        name,
-        description: "Test function",
-        parameters: {
-            type: "object",
-            properties: {
-                input: { type: "string" }
-            }
-        },
-        returns: { type: "string" },
-        handler
+        success: true,
+        value: createMockMessage({
+            role: "assistant",
+            content
+        }),
+        error: undefined
     };
 }
 
@@ -165,12 +131,12 @@ export async function assertRejects(
     promise: Promise<unknown>,
     errorClass: new (...args: any[]) => Error,
     message?: string
-) {
+): Promise<void> {
     let error: Error | undefined;
     try {
         await promise;
     } catch (e) {
-        error = e;
+        error = e instanceof Error ? e : new Error(String(e));
     }
     if (!error) {
         throw new Error("Expected promise to reject");
@@ -199,4 +165,53 @@ export async function waitFor(
         await new Promise(resolve => setTimeout(resolve, interval));
     }
     throw new Error("Timeout waiting for condition");
+}
+
+/**
+ * Test agent implementation for testing
+ */
+export class TestAgent {
+    constructor(readonly config: AgentConfig) {}
+
+    async sendMessage(message: Message): Promise<Result<Message>> {
+        return {
+            success: true,
+            value: createMockMessage({
+                role: "assistant",
+                content: `Response to: ${message.content}`,
+                metadata: {
+                    senderId: this.config.id,
+                    recipientId: message.metadata.senderId,
+                    conversationId: message.metadata.conversationId,
+                    timestamp: Date.now()
+                }
+            }),
+            error: undefined
+        };
+    }
+
+    async receiveMessage(message: Message): Promise<Result<Message>> {
+        return {
+            success: true,
+            value: createMockMessage({
+                role: "assistant",
+                content: `Received: ${message.content}`,
+                metadata: {
+                    senderId: this.config.id,
+                    recipientId: message.metadata.senderId,
+                    conversationId: message.metadata.conversationId,
+                    timestamp: Date.now()
+                }
+            }),
+            error: undefined
+        };
+    }
+
+    async reset(): Promise<void> {
+        // No-op for testing
+    }
+
+    async terminate(): Promise<void> {
+        // No-op for testing
+    }
 }

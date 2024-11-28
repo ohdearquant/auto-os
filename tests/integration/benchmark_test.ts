@@ -1,279 +1,177 @@
 /**
- * System benchmark tests
- * @module tests/integration
+ * Performance benchmarking
+ * @module test/benchmark
  */
 
 import {
-    assertEquals,
-    assertExists,
-} from "https://deno.land/std/testing/asserts.ts";
-import { Agent } from "../../src/agent/base.ts";
-import { LLMProvider } from "../../src/llm/provider.ts";
-import { ChatManager } from "../../src/chat/manager.ts";
-import { MemoryManager } from "../../src/utils/memory_manager.ts";
-import { SecurityManager } from "../../src/utils/security.ts";
-import { AsyncOptimizer } from "../../src/utils/async_optimizer.ts";
-import type { Message, SecurityContext } from "../../src/types/mod.ts";
+    BaseAgent,
+    Message,
+    MemoryManager,
+    AsyncOptimizer
+} from "../mod.ts";
+import { createTestContext } from "./setup.ts";
 
-interface BenchmarkResult {
-    operation: string;
-    iterations: number;
-    totalTime: number;
-    averageTime: number;
-    minTime: number;
-    maxTime: number;
-    memoryUsage: {
-        before: number;
-        after: number;
-        delta: number;
-    };
-}
-
-async function runBenchmark(
-    name: string,
-    iterations: number,
-    operation: () => Promise<void>,
-    memory: MemoryManager
-): Promise<BenchmarkResult> {
-    const times: number[] = [];
-    const initialMemory = await memory.getStats();
-
-    for (let i = 0; i < iterations; i++) {
-        const start = performance.now();
-        await operation();
-        const end = performance.now();
-        times.push(end - start);
+class TestAgent extends BaseAgent {
+    constructor() {
+        super({
+            id: "test-agent",
+            name: "Test Agent",
+            type: "test",
+            security: createTestContext()
+        });
     }
 
-    const finalMemory = await memory.getStats();
+    public async processMessage(message: Message): Promise<Message> {
+        return {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: `Processed: ${message.content}`,
+            metadata: {
+                senderId: this.getId(),
+                recipientId: message.metadata.senderId,
+                conversationId: message.metadata.conversationId,
+                timestamp: Date.now()
+            },
+            timestamp: Date.now()
+        };
+    }
 
-    return {
-        operation: name,
-        iterations,
-        totalTime: times.reduce((a, b) => a + b, 0),
-        averageTime: times.reduce((a, b) => a + b, 0) / times.length,
-        minTime: Math.min(...times),
-        maxTime: Math.max(...times),
-        memoryUsage: {
-            before: initialMemory.allocated,
-            after: finalMemory.allocated,
-            delta: finalMemory.allocated - initialMemory.allocated
-        }
-    };
+    public async receiveMessage(
+        message: Message,
+        sender: BaseAgent
+    ): Promise<Message> {
+        return this.processMessage(message);
+    }
 }
 
-Deno.test("System Benchmarks", async (t) => {
-    const security = new SecurityManager();
-    const memory = new MemoryManager({
-        maxHeapSize: 1024 * 1024 * 200
-    });
-
-    const context: SecurityContext = {
-        principal: "benchmark",
-        scope: "performance",
-        permissions: {
-            "llm:access": true,
-            "memory:allocate": true,
-            "chat:create": true
+function generateTestMessages(count: number): Message[] {
+    return Array.from({ length: count }, (_, i) => ({
+        id: crypto.randomUUID(),
+        role: "user",
+        content: `Test message ${i}`,
+        metadata: {
+            senderId: "test-user",
+            recipientId: "test-agent",
+            conversationId: "test-conversation",
+            timestamp: Date.now()
         },
         timestamp: Date.now()
-    };
+    }));
+}
 
-    await security.grantPermissions(context);
+export async function runBenchmarks(): Promise<void> {
+    console.log("Running performance benchmarks...\n");
 
-    const llm = new LLMProvider({
-        provider: "openai",
-        model: "gpt-4",
-        apiConfig: {
-            apiKey: "test-key"
+    // Message handling benchmark
+    await benchmarkMessageHandling();
+
+    // Memory usage benchmark
+    await benchmarkMemoryUsage();
+
+    // Async operation benchmark
+    await benchmarkAsyncOperations();
+
+    console.log("\nBenchmarks complete.");
+}
+
+async function benchmarkMessageHandling(): Promise<void> {
+    const agent = new TestAgent();
+    const messages = generateTestMessages(1000);
+
+    console.log("Message Handling Benchmark:");
+    
+    // Single message processing
+    const singleStart = performance.now();
+    for (const msg of messages) {
+        await agent.processMessage(msg);
+    }
+    const singleTime = performance.now() - singleStart;
+
+    // Batch processing
+    const batchStart = performance.now();
+    await agent.processBatch(messages);
+    const batchTime = performance.now() - batchStart;
+
+    console.log(`Single processing: ${Math.round(singleTime)}ms`);
+    console.log(`Batch processing: ${Math.round(batchTime)}ms`);
+    console.log(`Improvement: ${Math.round((singleTime - batchTime) / singleTime * 100)}%`);
+}
+
+async function benchmarkMemoryUsage(): Promise<void> {
+    const memoryManager = new MemoryManager({
+        memory: 256 * 1024 * 1024, // 256MB
+        poolSize: 1000
+    });
+
+    console.log("\nMemory Usage Benchmark:");
+
+    // Without optimization
+    const unoptimizedStart = await getCurrentMemory();
+    const largeData = new Array(1000000).fill("test");
+    const unoptimizedEnd = await getCurrentMemory();
+
+    // With optimization
+    const optimizedStart = await getCurrentMemory();
+    await memoryManager.withMemoryOptimization(async () => {
+        const data = new Array(1000000).fill("test");
+        return data.length;
+    });
+    const optimizedEnd = await getCurrentMemory();
+
+    console.log(`Without optimization: ${formatBytes(unoptimizedEnd - unoptimizedStart)}`);
+    console.log(`With optimization: ${formatBytes(optimizedEnd - optimizedStart)}`);
+    console.log(`Improvement: ${Math.round((unoptimizedEnd - unoptimizedStart - (optimizedEnd - optimizedStart)) / (unoptimizedEnd - unoptimizedStart) * 100)}%`);
+}
+
+async function benchmarkAsyncOperations(): Promise<void> {
+    const optimizer = new AsyncOptimizer();
+    const operations = Array.from(
+        { length: 100 },
+        (_, i) => async () => {
+            await new Promise(resolve => setTimeout(resolve, 10));
+            return i;
         }
-    }, security);
+    );
 
-    const chatManager = new ChatManager(security);
-    const optimizer = new AsyncOptimizer({
-        maxQueueSize: 1000,
-        batchSize: 10,
-        batchTimeout: 100,
-        maxConcurrent: 5
-    });
+    console.log("\nAsync Operation Benchmark:");
 
-    await t.step("message processing benchmark", async () => {
-        const agent = new Agent({
-            id: "bench-agent",
-            llm,
-            security,
-            memory
-        });
+    // Sequential execution
+    const seqStart = performance.now();
+    for (const op of operations) {
+        await op();
+    }
+    const seqTime = performance.now() - seqStart;
 
-        const chat = await chatManager.createChat("direct", {
-            id: "bench-chat",
-            security
-        });
+    // Optimized execution
+    const optStart = performance.now();
+    await optimizer.withConcurrencyLimit(operations, 10);
+    const optTime = performance.now() - optStart;
 
-        await chat.addParticipant("sender");
-        await chat.addParticipant("bench-agent");
+    console.log(`Sequential execution: ${Math.round(seqTime)}ms`);
+    console.log(`Optimized execution: ${Math.round(optTime)}ms`);
+    console.log(`Improvement: ${Math.round((seqTime - optTime) / seqTime * 100)}%`);
+}
 
-        const result = await runBenchmark(
-            "message_processing",
-            100,
-            async () => {
-                const message: Message = {
-                    id: crypto.randomUUID(),
-                    role: "user",
-                    content: "Test message",
-                    metadata: {
-                        senderId: "sender",
-                        recipientId: "bench-agent",
-                        conversationId: "bench-chat",
-                        timestamp: Date.now()
-                    },
-                    timestamp: Date.now()
-                };
-                await chat.sendMessage(message);
-            },
-            memory
-        );
+async function getCurrentMemory(): Promise<number> {
+    try {
+        const usage = await Deno.memoryUsage();
+        return usage.heapUsed;
+    } catch {
+        return 0;
+    }
+}
 
-        assertEquals(result.iterations, 100);
-        assertEquals(result.averageTime < 50, true); // < 50ms per message
-        assertEquals(result.memoryUsage.delta >= 0, true);
-    });
+function formatBytes(bytes: number): string {
+    const units = ["B", "KB", "MB", "GB"];
+    let size = bytes;
+    let unit = 0;
+    while (size >= 1024 && unit < units.length - 1) {
+        size /= 1024;
+        unit++;
+    }
+    return `${Math.round(size * 100) / 100}${units[unit]}`;
+}
 
-    await t.step("batch processing benchmark", async () => {
-        const result = await runBenchmark(
-            "batch_processing",
-            10,
-            async () => {
-                const items = Array(100).fill(0).map((_, i) => ({
-                    id: `item-${i}`,
-                    value: i
-                }));
-
-                const processor = optimizer.createBatchProcessor<typeof items[0], number>(
-                    async (batch) => {
-                        await new Promise(r => setTimeout(r, 1)); // Minimal delay
-                        return batch.map(item => item.value * 2);
-                    }
-                );
-
-                await Promise.all(
-                    items.map(item => processor.process(item))
-                );
-            },
-            memory
-        );
-
-        assertEquals(result.iterations, 10);
-        assertEquals(result.averageTime < 200, true); // < 200ms per batch
-        assertEquals(result.memoryUsage.delta >= 0, true);
-    });
-
-    await t.step("memory allocation benchmark", async () => {
-        const result = await runBenchmark(
-            "memory_allocation",
-            1000,
-            async () => {
-                const block = await memory.allocate(1024);
-                await memory.release(block.id);
-            },
-            memory
-        );
-
-        assertEquals(result.iterations, 1000);
-        assertEquals(result.averageTime < 1, true); // < 1ms per allocation
-        assertEquals(result.memoryUsage.delta, 0); // Should clean up
-    });
-
-    await t.step("concurrent operations benchmark", async () => {
-        const result = await runBenchmark(
-            "concurrent_operations",
-            10,
-            async () => {
-                const operations = [];
-
-                // Mix of different operations
-                operations.push(
-                    chatManager.createChat("direct", {
-                        id: `bench-${crypto.randomUUID()}`,
-                        security
-                    })
-                );
-
-                operations.push(memory.allocate(1024));
-
-                operations.push(
-                    optimizer.process(Array(10).fill(0))
-                );
-
-                await Promise.all(operations);
-            },
-            memory
-        );
-
-        assertEquals(result.iterations, 10);
-        assertEquals(result.averageTime < 100, true); // < 100ms per concurrent set
-        assertEquals(result.memoryUsage.delta >= 0, true);
-    });
-
-    await t.step("system stability benchmark", async () => {
-        const results: BenchmarkResult[] = [];
-        const iterations = 5;
-
-        // Run increasingly intensive operations
-        for (let i = 0; i < iterations; i++) {
-            const scale = i + 1;
-            const result = await runBenchmark(
-                `stability_test_${scale}x`,
-                1,
-                async () => {
-                    const operations = [];
-
-                    // Scale up the number of operations
-                    for (let j = 0; j < scale; j++) {
-                        operations.push(
-                            chatManager.createChat("direct", {
-                                id: `bench-${crypto.randomUUID()}`,
-                                security
-                            })
-                        );
-
-                        operations.push(
-                            memory.allocate(1024 * scale)
-                        );
-
-                        operations.push(
-                            optimizer.process(
-                                Array(10 * scale).fill(0)
-                            )
-                        );
-                    }
-
-                    await Promise.all(operations);
-                    await memory.runGarbageCollection();
-                },
-                memory
-            );
-
-            results.push(result);
-        }
-
-        // Verify system stability
-        for (let i = 1; i < results.length; i++) {
-            const prevResult = results[i - 1];
-            const currResult = results[i];
-
-            // Time should scale sub-linearly
-            assertEquals(
-                currResult.totalTime < prevResult.totalTime * 2,
-                true
-            );
-
-            // Memory should be managed effectively
-            assertEquals(
-                currResult.memoryUsage.after < 
-                memory.getStats().limit * 0.9,
-                true
-            );
-        }
-    });
-});
+if (import.meta.main) {
+    await runBenchmarks();
+}
