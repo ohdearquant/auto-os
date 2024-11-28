@@ -102,9 +102,9 @@ export interface SecurityConfig {
 }
 
 /**
- * Agent configuration
+ * Agent runtime/operational configuration
  */
-export interface AgentConfig {
+export interface AgentRuntimeConfig {
   maxInstances: number;
   timeout: number;
   retries: number;
@@ -123,7 +123,7 @@ export interface SystemConfig {
   metrics: MetricsConfig;
   cache: CacheConfig;
   security: SecurityConfig;
-  agent: AgentConfig;
+  agent: AgentRuntimeConfig;
   env: "development" | "production" | "test";
 }
 
