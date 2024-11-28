@@ -17,19 +17,43 @@ Deno.test("Security Context", async (t) => {
 
     await t.step("validates permission patterns", async () => {
         // Test hierarchical permissions as specified in security-architecture.md
-        const allowed = await context.checkPermission({
+        const networkPermission = await context.checkPermission({
             type: "network",
             action: "connect",
             target: "api.example.com",
             protocol: "https"
         });
-        assertEquals(allowed, true);
+        assertEquals(networkPermission, true);
+
+        // Test file system permissions
+        const fsPermission = await context.checkPermission({
+            type: "fileSystem",
+            action: "read",
+            path: "/allowed/path"
+        });
+        assertEquals(fsPermission, true);
+
+        // Test environment permissions
+        const envPermission = await context.checkPermission({
+            type: "env",
+            action: "read",
+            variable: "ALLOWED_VAR"
+        });
+        assertEquals(envPermission, true);
 
         // Test permission inheritance
         const childContext = await context.createChildContext({
             scope: "limited"
         });
         assertEquals(await childContext.checkPermission("test_action"), true);
+        
+        // Test permission denial
+        const deniedPermission = await context.checkPermission({
+            type: "network",
+            action: "connect",
+            target: "malicious.com"
+        });
+        assertEquals(deniedPermission, false);
     });
 
     await t.step("enforces resource quotas", async () => {
@@ -37,7 +61,8 @@ Deno.test("Security Context", async (t) => {
             limits: {
                 memory: 100 * 1024 * 1024, // 100MB
                 cpu: 50, // 50% CPU
-                connections: 10
+                connections: 10,
+                bandwidth: 1024 * 1024 // 1MB/s
             }
         });
         
@@ -47,11 +72,36 @@ Deno.test("Security Context", async (t) => {
             true
         );
         
+        // Test CPU quota
+        assertEquals(
+            await quotaContext.checkResourceLimit("cpu", 25),
+            true
+        );
+        
         // Test connection quota
         assertEquals(
             await quotaContext.checkResourceLimit("connections", 5),
             true
         );
+
+        // Test bandwidth quota
+        assertEquals(
+            await quotaContext.checkResourceLimit("bandwidth", 512 * 1024),
+            true
+        );
+
+        // Test quota exceeded
+        assertEquals(
+            await quotaContext.checkResourceLimit("memory", 150 * 1024 * 1024),
+            false
+        );
+
+        // Test quota monitoring
+        const usage = await quotaContext.getResourceUsage();
+        assertExists(usage.memory);
+        assertExists(usage.cpu);
+        assertExists(usage.connections);
+        assertExists(usage.bandwidth);
     });
 
     await t.step("tracks principal", () => {
